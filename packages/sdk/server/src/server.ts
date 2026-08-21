@@ -220,18 +220,44 @@ export class HarnessSdkJsonRpcServer {
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
     // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
-    const handle = await this.ctx.agents.create({
-      sessionId: SessionId(sessionId),
-      meta: { cwd: this.cwd },
-      agentOptions: {
-        provider: this.provider,
-        model: this.model,
-        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
-      },
-    })
+    const handle = await this.createOrResumeSession(sessionId)
     const rec: SessionRecord = { handle }
     this.sessions.set(sessionId, rec)
     return rec
+  }
+
+  /**
+   * 优先恢复持久化会话（跨进程/服务重启后继续旧对话），
+   * 仅当磁盘上不存在该会话时才新建；日志损坏等真实错误保持响亮失败。
+   */
+  private async createOrResumeSession(sessionId: string): Promise<AgentHandle> {
+    const agentOptions = {
+      provider: this.provider,
+      model: this.model,
+      ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+    }
+    try {
+      return await this.ctx.agents.resume({
+        resumeSessionId: SessionId(sessionId),
+        agentOptions,
+      })
+    } catch (error) {
+      // 与 agent-loop 的 restoreOrCreateConfigured 同款判定：
+      // 只有“会话确实不存在”才回退到新建，损坏/后端错误继续抛出。
+      const persistence = this.ctx.get('sessionPersistence') as
+        | { list(): Promise<Array<{ id: string }>> }
+        | undefined
+      const exists =
+        persistence === undefined
+          ? false
+          : (await persistence.list()).some(header => header.id === sessionId)
+      if (exists) throw error
+    }
+    return this.ctx.agents.create({
+      sessionId: SessionId(sessionId),
+      meta: { cwd: this.cwd },
+      agentOptions,
+    })
   }
 
   private hasAdapterFor(provider: string): boolean {
