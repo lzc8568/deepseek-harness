@@ -220,6 +220,11 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     source_directory = executable.parent
     for filename in runtime_filenames(executable_name):
         shutil.copy2(source_directory / filename, runtime_dir / filename)
+    # sharp 闭包会把 libvips 共享库以 <exe>-libvips/ 目录放在可执行文件旁，
+    # 构建 wheel 时原样带入（内容不参与顶层断言）。
+    libvips_source = source_directory / f"{executable_name}-libvips"
+    if libvips_source.is_dir():
+        shutil.copytree(libvips_source, runtime_dir / f"{executable_name}-libvips")
 
 
 def verify_wheel(
@@ -259,10 +264,21 @@ def verify_wheel(
         if package == "runtime":
             assert platform is not None
             expected_files = sorted(runtime_filenames(platform[1]))
-            found_files = sorted(Path(name).name for name in runtime_files)
-            if found_files != expected_files:
-                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            # sharp 闭包会附带 <exe>-libvips/ 目录；只断言 runtime/ 顶层产物，
+            # libvips 目录内容允许出现在其下方。
+            top_level = sorted({
+                Path(name).parts[-1]
+                for name in runtime_files
+                if Path(name).parts[-2] == "runtime"
+            })
+            allowed = [expected_files, sorted([*expected_files, f"{platform[1]}-libvips"])]
+            if top_level not in allowed:
+                raise RuntimeError(
+                    f"{wheel} runtime payload top-level must be one of {allowed}, found {top_level}"
+                )
             for runtime_file in runtime_files:
+                if Path(runtime_file).parts[-2] != "runtime":
+                    continue
                 mode = archive.getinfo(runtime_file).external_attr >> 16
                 if platform[0] != "win_amd64" and mode & stat.S_IXUSR == 0:
                     raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
