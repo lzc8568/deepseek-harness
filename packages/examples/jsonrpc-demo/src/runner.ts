@@ -5,34 +5,10 @@
  */
 
 import { existsSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
 import { boot, installFailLoud, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 
 /* v8 ignore start -- composition over tested app-boot/jsonrpc and executable acceptance paths */
 const NAME = 'dsh-jsonrpc-agent'
-
-/**
- * Let sharp's native addon find its libvips shared libraries when running as
- * the packaged single-file executable. pkg's virtual filesystem cannot dlopen
- * `.so`/`.dylib` files, so the build places the `@img/sharp-libvips-*` bundle
- * beside the executable as a `<product>-libvips` directory; exposing that
- * directory on the loader path makes dlopen resolve from real disk bytes
- * rather than the snapshot. Regular Node execution has no `process.pkg`, so
- * sharp resolves libvips from its own `node_modules` and nothing is changed.
- */
-function setupSharpNativeEnv(): void {
-  const packagedExecutable = (process as typeof process & { pkg?: string }).pkg
-  if (typeof packagedExecutable !== 'string') return
-  const libvipsDir = join(dirname(packagedExecutable), `${basename(packagedExecutable)}-libvips`)
-  if (!existsSync(libvipsDir)) return
-  // `@img/sharp-libvips-*` keeps its shared libraries under `lib/`; exposing
-  // that directory is what makes dlopen find libvips-cpp.so from the sidecar.
-  const libvipsLib = join(libvipsDir, 'lib')
-  const loadPath = existsSync(libvipsLib) ? libvipsLib : libvipsDir
-  const key = process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH'
-  const existing = process.env[key]
-  process.env[key] = existing === undefined ? loadPath : `${loadPath}:${existing}`
-}
 
 /**
  * Boot the explicitly selected external configuration and own process exit.
@@ -44,7 +20,6 @@ function setupSharpNativeEnv(): void {
 export async function runJsonrpcAgent(bareModuleBaseUrl?: string): Promise<void> {
   installFailLoud(NAME)
   loadEnv(NAME)
-  setupSharpNativeEnv()
 
   // Env wins over argv; empty values are absent. External config defines the deployment.
   const fromEnv = process.env['DSH_CORDIS_CONFIG']
