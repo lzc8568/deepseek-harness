@@ -21,8 +21,9 @@ const NAME = 'dsh-jsonrpc-agent'
  * sharp resolves libvips from its own `node_modules` and nothing is changed.
  */
 function setupSharpNativeEnv(): void {
-  if (typeof process.pkg !== 'string') return
-  const libvipsDir = join(dirname(process.pkg), `${basename(process.pkg)}-libvips`)
+  const packagedExecutable = (process as typeof process & { pkg?: string }).pkg
+  if (typeof packagedExecutable !== 'string') return
+  const libvipsDir = join(dirname(packagedExecutable), `${basename(packagedExecutable)}-libvips`)
   if (!existsSync(libvipsDir)) return
   const key = process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH'
   const existing = process.env[key]

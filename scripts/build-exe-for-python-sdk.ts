@@ -512,10 +512,8 @@ class SingleExeBuild {
         continue
       }
       const stat = statSync(path)
-      const bytes = stat.isDirectory()
-        ? readdir(path).reduce((sum, entry) => sum + statSync(join(path, entry)).size, 0)
-        : stat.size
-      console.log(`  ${path}  (${(bytes / (1024 * 1024)).toFixed(1)} MB)`)
+      const label = stat.isDirectory() ? 'dir' : `${(stat.size / (1024 * 1024)).toFixed(1)} MB`
+      console.log(`  ${path}  (${label})`)
     }
   }
 
