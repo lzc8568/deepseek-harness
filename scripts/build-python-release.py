@@ -262,7 +262,7 @@ def verify_wheel(
                 for name in runtime_files
                 if Path(name).parts[-2] == "runtime"
             })
-            if top_level != expected_files:
+            if sorted(top_level) != sorted(expected_files):
                 raise RuntimeError(
                     f"{wheel} runtime payload top-level must be {expected_files}, found {top_level}"
                 )

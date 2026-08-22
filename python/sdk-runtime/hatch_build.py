@@ -74,7 +74,7 @@ class RuntimeBuildHook(BuildHookInterface):
         if libvips.is_dir():
             expected_files.append(libvips.name)
         found_files = [path.name for path in runtime_files]
-        if found_files != expected_files:
+        if sorted(found_files) != sorted(expected_files):
             raise RuntimeError(
                 f"runtime wheel {platform_tag} payload must be {expected_files}; found {found_files}"
             )
