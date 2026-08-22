@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join, parse, resolve } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import sharp from 'sharp'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { readImageFile, saveImageFile } from '../src/store.ts'
 
@@ -35,6 +34,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 const PNG = Uint8Array.from(Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+))
+// 5x5 PNG：超过 LIMITS.maxImagePixels(16)，用于越限校验
+const WIDE_PNG = Uint8Array.from(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAFUlEQVR4nGNkYGD4z4AGmNAFqCAIAGcRAQmlp18ZAAAAAElFTkSuQmCC',
   'base64',
 ))
 
@@ -171,14 +175,11 @@ describe('local attachment store', () => {
       data: PNG, mediaType: 'image/png',
     }, { ...LIMITS, maxImageBytes: 1 })).rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
 
-    const wide = new Uint8Array(await sharp({
-      create: { width: 5, height: 5, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
-    }).png().toBuffer())
     await expect(saveImageFile(storageRoot, {
-      data: wide, mediaType: 'image/png',
+      data: WIDE_PNG, mediaType: 'image/png',
     }, LIMITS)).rejects.toMatchObject({ code: 'IMAGE_TOO_MANY_PIXELS' })
     await expect(saveImageFile(storageRoot, {
-      data: wide, mediaType: 'image/png',
+      data: WIDE_PNG, mediaType: 'image/png',
     }, { ...LIMITS, maxImagePixels: 25, maxImageDimension: 4 })).rejects.toMatchObject({ code: 'IMAGE_DIMENSION_TOO_LARGE' })
     const unnamed = await saveImageFile(storageRoot, {
       data: PNG, mediaType: 'image/png', name: '\u0000',
