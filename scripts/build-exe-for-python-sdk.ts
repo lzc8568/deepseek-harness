@@ -398,7 +398,8 @@ class SingleExeBuild {
       throw new Error(`build-exe-for-python-sdk: product ${product} is missing after the pkg run; inspect ${this.outDir}.`)
     }
     const ripgrep = await this.copyRipgrepSidecar(target, product)
-    if (target.platform !== 'macos') return [product, ripgrep]
+    const libvips = await this.copySharpLibvipsSidecar(target, product)
+    if (target.platform !== 'macos') return [product, ripgrep, libvips]
     const spawnHelper = `${product}-spawn-helper`
     const source = join(this.staging, 'node_modules', 'node-pty', 'prebuilds', `darwin-${target.arch}`, 'spawn-helper')
     if (this.cli.dryRun) {
@@ -407,7 +408,7 @@ class SingleExeBuild {
       await copyFile(source, spawnHelper)
       await chmod(spawnHelper, 0o755)
     }
-    return [product, ripgrep, spawnHelper]
+    return [product, ripgrep, libvips, spawnHelper]
   }
 
   /** Copy the target ripgrep binary beside the executable so Node can spawn it outside pkg's virtual filesystem. */
@@ -431,6 +432,36 @@ class SingleExeBuild {
     }
     await copyFile(source, destination)
     await chmod(destination, 0o755)
+    return destination
+  }
+
+  /**
+   * Copy the target sharp/libvips shared-library bundle beside the executable
+   * so sharp's native addon can dlopen it outside pkg's virtual filesystem.
+   * `@img/sharp` and `@img/sharp-libvips-*` are optional platform carriers of
+   * the `sharp` dependency, so the bundle only exists when a plugin in the
+   * closure actually depends on sharp (e.g. `dsh-attachment-local`); when it
+   * is absent the single file carries no native image runtime and nothing is
+   * copied.
+   * @param target - the pkg target whose libvips bundle is being staged.
+   * @param product - the executable path the sidecar sits beside.
+   * @returns the staged sidecar directory.
+   */
+  private async copySharpLibvipsSidecar(target: Target, product: string): Promise<string> {
+    const sharpPlatform = target.platform === 'macos' ? 'darwin' : target.platform
+    const source = join(
+      this.staging,
+      'node_modules',
+      '@img',
+      `sharp-libvips-${sharpPlatform}-${target.arch}`,
+    )
+    const destination = `${product}-libvips`
+    if (this.cli.dryRun) {
+      console.log(`build-exe-for-python-sdk: [dry-run] cp -R ${source} ${destination}`)
+      return destination
+    }
+    if (!existsSync(source)) return destination
+    await cp(source, destination, { recursive: true })
     return destination
   }
 
@@ -480,8 +511,11 @@ class SingleExeBuild {
         console.log(`  ${path}`)
         continue
       }
-      const megabytes = statSync(path).size / (1024 * 1024)
-      console.log(`  ${path}  (${megabytes.toFixed(1)} MB)`)
+      const stat = statSync(path)
+      const bytes = stat.isDirectory()
+        ? readdir(path).reduce((sum, entry) => sum + statSync(join(path, entry)).size, 0)
+        : stat.size
+      console.log(`  ${path}  (${(bytes / (1024 * 1024)).toFixed(1)} MB)`)
     }
   }
 
@@ -501,8 +535,12 @@ class SingleExeBuild {
     await mkdir(destDir, { recursive: true })
     for (const path of products) {
       const destination = join(destDir, basename(path))
-      await copyFile(path, destination)
-      await chmod(destination, statSync(path).mode & 0o777)
+      if (statSync(path).isDirectory()) {
+        await cp(path, destination, { recursive: true })
+      } else {
+        await copyFile(path, destination)
+        await chmod(destination, statSync(path).mode & 0o777)
+      }
       console.log(`build-exe-for-python-sdk: synced ${destination}`)
     }
   }

@@ -212,6 +212,9 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     runtime_dir.mkdir(parents=True, exist_ok=True)
     for suffix in runtime_suffixes(executable_name):
         shutil.copy2(Path(f"{executable}{suffix}"), runtime_dir / f"{executable_name}{suffix}")
+    libvips_source = Path(f"{executable}-libvips")
+    if libvips_source.is_dir():
+        shutil.copytree(libvips_source, runtime_dir / f"{executable_name}-libvips")
 
 
 def verify_wheel(
@@ -251,10 +254,21 @@ def verify_wheel(
         if package == "runtime":
             assert platform is not None
             expected_files = [f"{platform[1]}{suffix}" for suffix in runtime_suffixes(platform[1])]
-            found_files = sorted(Path(name).name for name in runtime_files)
-            if found_files != expected_files:
-                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            # A sharp-backed closure ships its libvips shared libraries as a
+            # directory beside the executable; only the top-level products are
+            # asserted, and the libvips contents are allowed beneath `<exe>-libvips/`.
+            top_level = sorted({
+                Path(name).parts[-1]
+                for name in runtime_files
+                if Path(name).parts[-2] == "runtime"
+            })
+            if top_level != expected_files:
+                raise RuntimeError(
+                    f"{wheel} runtime payload top-level must be {expected_files}, found {top_level}"
+                )
             for runtime_file in runtime_files:
+                if Path(runtime_file).parts[-2] != "runtime":
+                    continue
                 mode = archive.getinfo(runtime_file).external_attr >> 16
                 if mode & stat.S_IXUSR == 0:
                     raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
