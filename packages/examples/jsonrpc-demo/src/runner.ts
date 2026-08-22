@@ -25,9 +25,13 @@ function setupSharpNativeEnv(): void {
   if (typeof packagedExecutable !== 'string') return
   const libvipsDir = join(dirname(packagedExecutable), `${basename(packagedExecutable)}-libvips`)
   if (!existsSync(libvipsDir)) return
+  // `@img/sharp-libvips-*` keeps its shared libraries under `lib/`; exposing
+  // that directory is what makes dlopen find libvips-cpp.so from the sidecar.
+  const libvipsLib = join(libvipsDir, 'lib')
+  const loadPath = existsSync(libvipsLib) ? libvipsLib : libvipsDir
   const key = process.platform === 'darwin' ? 'DYLD_LIBRARY_PATH' : 'LD_LIBRARY_PATH'
   const existing = process.env[key]
-  process.env[key] = existing === undefined ? libvipsDir : `${libvipsDir}:${existing}`
+  process.env[key] = existing === undefined ? loadPath : `${loadPath}:${existing}`
 }
 
 /**
