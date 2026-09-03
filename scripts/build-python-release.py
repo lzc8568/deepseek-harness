@@ -220,6 +220,9 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     source_directory = executable.parent
     for filename in runtime_filenames(executable_name):
         shutil.copy2(source_directory / filename, runtime_dir / filename)
+    libvips_source = source_directory / f"{executable_name.removesuffix('.exe')}-libvips"
+    if libvips_source.is_dir():
+        shutil.copytree(libvips_source, runtime_dir / libvips_source.name)
 
 
 def verify_wheel(
@@ -258,11 +261,26 @@ def verify_wheel(
         ]
         if package == "runtime":
             assert platform is not None
-            expected_files = sorted(runtime_filenames(platform[1]))
-            found_files = sorted(Path(name).name for name in runtime_files)
-            if found_files != expected_files:
-                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            executable_name = platform[1]
+            expected_files = set(runtime_filenames(executable_name))
+            # A sharp-backed closure ships its libvips shared libraries as a
+            # directory beside the executable; only top-level products are
+            # asserted, and the libvips contents are allowed beneath `<exe>-libvips/`.
+            libvips_name = f"{executable_name.removesuffix('.exe')}-libvips"
+            top_level = {
+                Path(name).parts[-1]
+                for name in runtime_files
+                if Path(name).parts[-2] == "runtime" and not name.endswith("/")
+            }
+            if libvips_name in top_level:
+                expected_files.add(libvips_name)
+            if top_level != expected_files:
+                raise RuntimeError(
+                    f"{wheel} runtime payload top-level must be {sorted(expected_files)}, found {sorted(top_level)}"
+                )
             for runtime_file in runtime_files:
+                if Path(runtime_file).parts[-2] != "runtime" or runtime_file.endswith("/"):
+                    continue
                 mode = archive.getinfo(runtime_file).external_attr >> 16
                 if platform[0] != "win_amd64" and mode & stat.S_IXUSR == 0:
                     raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
