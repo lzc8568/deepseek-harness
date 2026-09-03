@@ -1157,6 +1157,38 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('resumes a persisted session, creates an absent one, and rethrows other load failures', async () => {
+    const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
+      .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })
+    const resume = vi.fn<(options: unknown) => Promise<AgentHandle>>()
+      .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, resume, get: () => undefined },
+      get: (key: string) => key === 'sessionPersistence'
+        ? { list: () => Promise.resolve([]) }
+        : { listProviders: () => [{ id: 'mock', name: 'Mock' }], resolveCallConfig: (config: unknown) => config },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
+      createOrResumeSession(id: string): Promise<AgentHandle>
+      shutdown(): Promise<Record<string, never>>
+    }
+
+    await server.createOrResumeSession('exists')
+    expect(resume).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: SessionId('exists') }))
+    expect(create).not.toHaveBeenCalled()
+
+    resume.mockRejectedValueOnce(Object.assign(new Error('session gone'), { name: 'SessionPersistenceNotFoundError' }))
+    await server.createOrResumeSession('absent')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SessionId('absent') }))
+
+    resume.mockRejectedValueOnce(new Error('corrupt log'))
+    await expect(server.createOrResumeSession('corrupt')).rejects.toThrow('corrupt log')
+    expect(create).toHaveBeenCalledTimes(1)
+
+    await server.shutdown()
+  })
+
   it('settles every teardown and aggregates multiple failures', async () => {
     const firstDispose = vi.fn(() => { throw new Error('first teardown failed') })
     const secondDispose = vi.fn(() => Promise.reject(new Error('second teardown failed')))
