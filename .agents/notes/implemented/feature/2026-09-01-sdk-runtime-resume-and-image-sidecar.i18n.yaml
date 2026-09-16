@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-01-sdk-runtime-resume-and-image-sidecar.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-sdk-runtime-resume-and-image-sidecar.md
+/agent-note-sdk-session-resume-and-runtime-image-sidecar:
+  en: 159e7c7fb880f0bd
+  zh: 1791403ba3f2ea60
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/problem:
+  en: 24117b0d342fc054
+  zh: d5f9f5e3a1f3e4a1
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/decision/sdk-server-resumes-before-it-creates:
+  en: cca74164707f028f
+  zh: 8b71bf24d8a4da70
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/decision/the-exe-carries-a-sharp-libvips-sidecar:
+  en: d38155ce26bcf3df
+  zh: 4e29c21151e9e991
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/alternatives-considered:
+  en: 7d5f5bfb2b495a47
+  zh: dacee6fd8486e401
+/agent-note-sdk-session-resume-and-runtime-image-sidecar/consequences:
+  en: 475319b8364aa1b3
+  zh: a75c20943f7550b1

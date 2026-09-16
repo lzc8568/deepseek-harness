@@ -90,6 +90,9 @@ class RuntimeBuildHook(BuildHookInterface):
         expected_files.append(office.name)
         resources = runtime_dir / target
         expected_files.append(resources.name)
+        libvips = runtime_dir / f"{expected_executable.removesuffix('.exe')}-libvips"
+        if libvips.is_dir():
+            expected_files.append(libvips.name)
         expected_files.sort()
         found_files = [path.name for path in runtime_files]
         if found_files != expected_files:
@@ -111,6 +114,8 @@ class RuntimeBuildHook(BuildHookInterface):
                 required = office / "node_modules" / f"@deepseek-ai/libreoffice-kit-{engine}/prebuilds.json"
                 if not required.is_file():
                     raise RuntimeError(f"runtime Office dependency is missing: {required}")
+                continue
+            if executable == libvips:
                 continue
             if not executable.is_file():
                 raise RuntimeError(f"runtime executable is not a file: {executable}")
