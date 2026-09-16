@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-sdk-runtime-resume-and-image-sidecar.md
-2026-09-01-sdk-runtime-resume-and-image-sidecar.md: 7105bd82869cd68ea469f7b4caf453598e7d4ae5
-2026-09-01-sdk-runtime-resume-and-image-sidecar.zh.md: 933bf8a0e925525261f0309fb21d34f4c6a3c064
+2026-09-01-sdk-runtime-resume-and-image-sidecar.md: 8cccbfc3ec4b00521d76d79ced5eac6afcc6a7a8
+2026-09-01-sdk-runtime-resume-and-image-sidecar.zh.md: e1f2d767d31c286cce6b3a59e05b38b7fe4a5b2b
