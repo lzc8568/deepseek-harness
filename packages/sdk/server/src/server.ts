@@ -278,19 +278,43 @@ export class HarnessSdkJsonRpcServer {
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
     // (@deepseek-ai/dsh-agent-preset-registry README, "Composing a child agent").
-    const handle = await this.ctx.agents.create({
-      sessionId: brandString<SessionId>(sessionId),
-      meta: { cwd: this.cwd },
-      agentOptions: {
-        provider: this.provider,
-        model: this.model,
-        ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
-        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
-      },
-    })
+    const handle = await this.createOrResumeSession(sessionId)
     const rec: SessionRecord = { handle }
     this.sessions.set(sessionId, rec)
     return rec
+  }
+
+  /**
+   * Resume a persisted session when one exists, otherwise create it.
+   * Both paths publish the same provider/model agentOptions because this server
+   * owns no preset composition; only the session source differs. A resumed log
+   * keeps its own turn numbering and derived history, while a missing durable
+   * log starts fresh. Corruption or a backend error surfaces loudly instead of
+   * silently replacing a usable persisted session with an empty one.
+   */
+  private async createOrResumeSession(sessionId: string): Promise<AgentHandle> {
+    const session = brandString<SessionId>(sessionId)
+    const agentOptions = {
+      provider: this.provider,
+      model: this.model,
+      ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
+      ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+    }
+    if (this.ctx.get('sessionPersistence') !== undefined && typeof this.ctx.agents.resume === 'function') {
+      try {
+        return await this.ctx.agents.resume({ resumeSessionId: session, agentOptions })
+      } catch (error) {
+        // Only a genuinely absent durable log falls through to create. Every
+        // other failure (corruption, backend error) rethrows instead of
+        // silently replacing a usable persisted session with an empty one.
+        if (!(error instanceof Error && error.name === 'SessionPersistenceNotFoundError')) throw error
+      }
+    }
+    return this.ctx.agents.create({
+      sessionId: session,
+      meta: { cwd: this.cwd },
+      agentOptions,
+    })
   }
 
   private hasAdapterFor(provider: string): boolean {
