@@ -16,7 +16,7 @@ SDK server 把会话创建统一收敛到 `createOrResumeSession`。配置了 se
 
 ### exe 携带 sharp/libvips sidecar
 
-`python/sdk-runtime/package.json` 现已依赖 `@deepseek-ai/dsh-attachment-local`，于是打包闭包携带 `sharp`，并随之携带目标平台的 `@img/sharp-libvips-*` carrier。单文件构建把该 carrier 放在可执行文件旁，命名为 `<exe>-libvips`，与现有 `-rg` sidecar 的做法一致（见[单文件可执行分发笔记](../architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.zh.md)）。目录仅在平台 carrier 存在时才被复制，因此不含 attachment-local 插件的闭包仍产出与之前相同的无 sharp 单文件。wheel 构建与 hatch hook 接受顶层的 `<exe>-libvips` 目录，同时继续断言顶层产物。Python client 在 exec 前把 `<exe>-libvips/lib` 前置到 `LD_LIBRARY_PATH`（macOS 为 `DYLD_LIBRARY_PATH`），使打包后的运行时能 dlopen vips；没有 sidecar 或 `lib` 目录时不做任何改动，常规 Node 启动与非 sharp 闭包照常工作。
+`python/sdk-runtime/package.json` 声明了 `@deepseek-ai/dsh-attachment-local`，把图像 provider 明确列入运行时组成。`sdk` profile 的 `dsh-base` 层挂载该 provider，并由它的 `sharp` 依赖把目标平台的 `@img/sharp-libvips-*` carrier 带入闭包。单文件构建把该 carrier 放在可执行文件旁，命名为 `<exe>-libvips`，与现有 `-rg` sidecar 的做法一致（见[单文件可执行分发笔记](../architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.zh.md)）。目录仅在平台 carrier 存在时才被复制，因此不含 attachment-local 插件的闭包仍产出与之前相同的无 sharp 单文件。wheel 构建与 hatch hook 接受顶层的 `<exe>-libvips` 目录，同时继续断言顶层产物。Python client 在 exec 前把 `<exe>-libvips/lib` 前置到 `LD_LIBRARY_PATH`（macOS 为 `DYLD_LIBRARY_PATH`），使打包后的运行时能 dlopen vips；没有 sidecar 或 `lib` 目录时不做任何改动，常规 Node 启动与非 sharp 闭包照常工作。
 
 ## Alternatives considered
 
@@ -26,4 +26,4 @@ SDK server 把会话创建统一收敛到 `createOrResumeSession`。配置了 se
 
 ## Consequences
 
-当 harness home 保留会话日志时，一次 SDK-server `session/prompt` 会在运行时重启后继续先前的对话，代价是每个 session id 首次访问时要做一次持久化日志查找。闭包携带 sharp 时单文件 wheel 会因 libvips bundle 而增大，runtime 载荷里多出一个目录；跨编译而缺少目标平台 carrier 的构建仍产出无 sharp 的单文件。由于 sidecar 目录是可选的、仅在存在时复制，非 sharp 闭包与仅开发的 node carrier 均不受影响。默认 runtime `cordis.yml` 并未挂载 attachment store，因此打包进闭包的 attachment-local provider 只有在调用方提供的配置挂载它时才可用；把 store 接入默认配置超出本次改动的范围。
+当 harness home 保留会话日志时，一次 SDK-server `session/prompt` 会在运行时重启后继续先前的对话，代价是每个 session id 首次访问时要做一次持久化日志查找。闭包携带 sharp 时单文件 wheel 会因 libvips bundle 而增大，runtime 载荷里多出一个目录；跨编译而缺少目标平台 carrier 的构建仍产出无 sharp 的单文件。由于 sidecar 目录是可选的、仅在存在时复制，非 sharp 闭包与仅开发的 node carrier 均不受影响。打包后的 `sdk` profile 会挂载 attachment store：闭包经由 `@deepseek-ai/dsh` 到达 `dsh-base`，由该 bundle 声明 `attachment-local` 依赖并挂载对应的一行。runtime manifest 里的这条依赖把图像 provider 直接列为运行时组成，而非依赖那个 bundle 的依赖边。
