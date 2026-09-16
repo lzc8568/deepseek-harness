@@ -84,6 +84,9 @@ class RuntimeBuildHook(BuildHookInterface):
         )
         if "-macos-" in expected_executable:
             expected_files.append(f"{expected_executable}-spawn-helper")
+        libvips = Path(runtime_dir) / f"{expected_executable.removesuffix('.exe')}-libvips"
+        if libvips.is_dir():
+            expected_files.append(libvips.name)
         expected_files.sort()
         found_files = [path.name for path in runtime_files]
         if found_files != expected_files:
@@ -91,6 +94,8 @@ class RuntimeBuildHook(BuildHookInterface):
                 f"runtime wheel {platform_tag} payload must be {expected_files}; found {found_files}"
             )
         for executable in runtime_files:
+            if executable.is_dir():
+                continue
             if platform_tag != "win_amd64" and executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
         build_data["pure_python"] = False
