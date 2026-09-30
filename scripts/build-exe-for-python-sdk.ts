@@ -423,7 +423,9 @@ class SingleExeBuild {
   /**
    * Package one target; SEA mode accepts one target per invocation.
    * @param target - the pkg target triple to build.
-   * @returns the executable, resource directories, ripgrep, and required macOS spawn helper paths.
+   * @returns the executable, resource directories, ripgrep, the sharp/libvips
+   * sidecar directory when the closure carries sharp, and the required macOS
+   * spawn helper path.
    */
   async pack(target: Target): Promise<string[]> {
     const productBase = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
@@ -452,6 +454,7 @@ class SingleExeBuild {
       console.log(`build-exe-for-python-sdk: copied ${packages.length} Office packages to ${office}`)
     }
     const ripgrep = await this.copyRipgrepSidecar(target, product)
+    const libvips = await this.copySharpLibvipsSidecar(target, product)
     const resources = join(this.outDir, `${target.platform}-${target.arch}`)
     const runtimeTarget = `${target.platform === 'macos' ? 'mac' : target.platform}-${target.arch}` as PrimaryRuntimeTarget
     if (this.cli.dryRun) {
@@ -462,7 +465,9 @@ class SingleExeBuild {
         cache: join(tmpdir(), 'dsh-primary-runtime-downloads'), version })
       smokePrimaryRuntime(join(resources, 'primary-runtime'))
     }
-    if (target.platform !== 'macos') return [product, ripgrep, office, resources]
+    const products = [product, ripgrep, office, resources]
+    if (libvips !== undefined) products.push(libvips)
+    if (target.platform !== 'macos') return products
     const spawnHelper = `${product}-spawn-helper`
     const source = join(this.staging, 'node_modules', 'node-pty', 'prebuilds', `darwin-${target.arch}`, 'spawn-helper')
     if (this.cli.dryRun) {
@@ -471,7 +476,8 @@ class SingleExeBuild {
       await copyFile(source, spawnHelper)
       await chmod(spawnHelper, 0o755)
     }
-    return [product, ripgrep, spawnHelper, office, resources]
+    products.push(spawnHelper)
+    return products
   }
 
   /** Copy the target ripgrep binary beside the executable so Node can spawn it outside pkg's virtual filesystem. */
@@ -498,6 +504,36 @@ class SingleExeBuild {
     }
     await copyFile(source, destination)
     await chmod(destination, 0o755)
+    return destination
+  }
+
+  /**
+   * Copy the target sharp/libvips shared-library bundle beside the executable
+   * so sharp's native addon can dlopen it outside pkg's virtual filesystem.
+   * `@img/sharp` and `@img/sharp-libvips-*` are optional platform carriers of
+   * the `sharp` dependency, so the bundle only exists when a plugin in the
+   * closure actually depends on sharp (e.g. `dsh-attachment-local`); when it is
+   * absent the single file carries no native image runtime and nothing is
+   * copied.
+   * @param target - the pkg target whose libvips bundle is being staged.
+   * @param product - the executable path the sidecar sits beside.
+   * @returns the staged sidecar directory, or undefined when no sharp carrier is present.
+   */
+  private async copySharpLibvipsSidecar(target: Target, product: string): Promise<string | undefined> {
+    const sharpPlatform = target.platform === 'macos' ? 'darwin' : target.platform
+    const source = join(
+      this.staging,
+      'node_modules',
+      '@img',
+      `sharp-libvips-${sharpPlatform}-${target.arch}`,
+    )
+    const destination = `${product}-libvips`
+    if (this.cli.dryRun) {
+      console.log(`build-exe-for-python-sdk: [dry-run] cp -R ${source} ${destination}`)
+      return existsSync(source) ? destination : undefined
+    }
+    if (!existsSync(source)) return undefined
+    await cp(source, destination, { recursive: true })
     return destination
   }
 

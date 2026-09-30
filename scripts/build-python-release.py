@@ -233,6 +233,9 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     shutil.copytree(source_directory / office, runtime_dir / office)
     resources = executable_name.removeprefix("deepseek-harness-sdk-runtime-").removesuffix(".exe")
     shutil.copytree(source_directory / resources, runtime_dir / resources)
+    libvips = source_directory / f"{executable_name.removesuffix('.exe')}-libvips"
+    if libvips.is_dir():
+        shutil.copytree(libvips, runtime_dir / libvips.name)
 
 
 def verify_office_payload(archive: zipfile.ZipFile, office_modules: str, platform_tag: str) -> None:
@@ -310,8 +313,16 @@ def verify_wheel(
             assert platform is not None
             office = office_sidecar_name(platform[1])
             resources = platform[1].removeprefix("deepseek-harness-sdk-runtime-").removesuffix(".exe")
-            expected_files = sorted((*runtime_filenames(platform[1]), office, resources))
             found_files = sorted({name.split("/runtime/", 1)[1].split("/", 1)[0] for name in runtime_payload})
+            expected_files = [*runtime_filenames(platform[1]), office, resources]
+            # A sharp-backed closure ships its libvips shared libraries as a
+            # directory beside the executable, so the payload may carry one
+            # optional top-level `<exe>-libvips/` product in addition to the
+            # executable, sidecars, and resource directories.
+            libvips = f"{platform[1].removesuffix('.exe')}-libvips"
+            if libvips in found_files:
+                expected_files.append(libvips)
+            expected_files.sort()
             if found_files != expected_files:
                 raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
             office_modules = f"deepseek_harness_runtime/runtime/{office}/node_modules"
