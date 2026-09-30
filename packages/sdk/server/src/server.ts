@@ -13,7 +13,7 @@ import { SdkUserQuestionBridge } from './user-questions.ts'
 import { queryCommand } from './query-input.ts'
 import { queryCommandImages, queryContent } from './query-content.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { admitEncodedImages, type EncodedImageAttachment, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId, type ContentBlock, type LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
@@ -565,34 +565,89 @@ export class HarnessSdkJsonRpcServer {
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
     // (@deepseek-ai/dsh-agent-preset-registry README, "Composing a child agent").
-    const agentOptions = {
-      provider: this.provider,
-      model: this.model,
-      ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
-      ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
-    }
-    const handle = await (resume ? this.ctx.agents.resume({
-      resumeSessionId: brandString<SessionId>(sessionId),
-      agentOptions,
-      // The initialized route replaces the restored Session's model selection.
-      setup: (_agentCtx, agent) => {
-        const previous = agent.model.current()
-        const selection = { ...agentOptions }
-        if (selection.reasoningEffort === undefined && previous !== undefined
-          && previous.provider === selection.provider && previous.model === selection.model
-          && previous.reasoningEffort !== undefined) {
-          selection.reasoningEffort = previous.reasoningEffort
-        }
-        agent.model.select(selection)
-      },
-    }) : this.ctx.agents.create({
-      sessionId: brandString<SessionId>(sessionId),
-      meta: { cwd: this.cwd },
-      agentOptions,
-    }))
+    // `session/resume` names a durable log explicitly, so it either restores
+    // that exact session or fails; the prompt path may fall back to create.
+    const handle = await (resume ? this.resumeSession(sessionId) : this.createOrResumeSession(sessionId))
     const rec: SessionRecord = { handle, failure: undefined }
     this.sessions.set(sessionId, rec)
     return rec
+  }
+
+  /** Provider/model route every session this server opens runs on. */
+  private agentOptions(): AgentOptions {
+    return {
+      ...this.freshSelection(),
+      ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+    }
+  }
+
+  /** Provider, model, and effort for a restored Session; a fresh object callers may update. */
+  private freshSelection(): ModelSelection {
+    return {
+      provider: this.provider,
+      model: this.model,
+      ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
+    }
+  }
+
+  /**
+   * Restore exactly the named durable log, applying the initialized model route.
+   * Missing, unreadable, or already-owned sessions reject instead of creating a
+   * replacement.
+   * @param sessionId - the persisted session to restore.
+   * @returns the restored Agent handle.
+   */
+  private resumeSession(sessionId: string): Promise<AgentHandle> {
+    return this.ctx.agents.resume({
+      resumeSessionId: brandString<SessionId>(sessionId),
+      agentOptions: this.agentOptions(),
+      setup: (_agentCtx, agent) => this.selectInitializedRoute(agent),
+    })
+  }
+
+  /**
+   * Replace the restored Session's model selection with the initialized route.
+   * A stored reasoning effort survives when provider and model still match.
+   * @param agent - the restored Agent whose model route is replaced.
+   */
+  private selectInitializedRoute(agent: Agent): void {
+    const selection = this.freshSelection()
+    const previous = agent.model.current()
+    if (selection.reasoningEffort === undefined && previous !== undefined
+      && previous.provider === selection.provider && previous.model === selection.model
+      && previous.reasoningEffort !== undefined) {
+      selection.reasoningEffort = previous.reasoningEffort
+    }
+    agent.model.select(selection)
+  }
+
+  /**
+   * Resume a persisted session when one exists, otherwise create it.
+   * Both paths publish the same provider/model agentOptions because this server
+   * owns no preset composition; only the session source differs. A resumed log
+   * keeps its own turn numbering and derived history, while a missing durable
+   * log starts fresh. Corruption or a backend error surfaces loudly instead of
+   * silently replacing a usable persisted session with an empty one.
+   * @param sessionId - the session the prompt path addresses.
+   * @returns the live or newly created Agent handle.
+   */
+  private async createOrResumeSession(sessionId: string): Promise<AgentHandle> {
+    const session = brandString<SessionId>(sessionId)
+    if (this.ctx.get('sessionPersistence') !== undefined && typeof this.ctx.agents.resume === 'function') {
+      try {
+        return await this.resumeSession(session)
+      } catch (error) {
+        // Only a genuinely absent durable log falls through to create. Every
+        // other failure (corruption, backend error) rethrows instead of
+        // silently replacing a usable persisted session with an empty one.
+        if (!(error instanceof Error && error.name === 'SessionPersistenceNotFoundError')) throw error
+      }
+    }
+    return this.ctx.agents.create({
+      sessionId: session,
+      meta: { cwd: this.cwd },
+      agentOptions: this.agentOptions(),
+    })
   }
 
   private hasAdapterFor(provider: string): boolean {
