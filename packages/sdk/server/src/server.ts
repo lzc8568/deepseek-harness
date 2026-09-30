@@ -8,7 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolve } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { admitEncodedImages, type EncodedImageAttachment, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId, type ContentBlock, type LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
@@ -400,23 +400,55 @@ export class HarnessSdkJsonRpcServer {
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
     // (@deepseek-ai/dsh-agent-preset-registry README, "Composing a child agent").
-    const agentOptions = {
+    // `session/resume` names a durable log explicitly, so it either restores
+    // that exact session or fails; the prompt path may fall back to create.
+    const handle = await (resume
+      ? this.ctx.agents.resume({
+        resumeSessionId: brandString<SessionId>(sessionId),
+        agentOptions: this.agentOptions(),
+      })
+      : this.createOrResumeSession(sessionId))
+    const rec: SessionRecord = { handle, failure: undefined }
+    this.sessions.set(sessionId, rec)
+    return rec
+  }
+
+  /** Provider/model route every session this server opens runs on. */
+  private agentOptions(): AgentOptions {
+    return {
       provider: this.provider,
       model: this.model,
       ...this.reasoningEffort === undefined ? {} : { reasoningEffort: this.reasoningEffort },
       ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
     }
-    const handle = await (resume ? this.ctx.agents.resume({
-      resumeSessionId: brandString<SessionId>(sessionId),
-      agentOptions,
-    }) : this.ctx.agents.create({
-      sessionId: brandString<SessionId>(sessionId),
+  }
+
+  /**
+   * Resume a persisted session when one exists, otherwise create it.
+   * Both paths publish the same provider/model agentOptions because this server
+   * owns no preset composition; only the session source differs. A resumed log
+   * keeps its own turn numbering and derived history, while a missing durable
+   * log starts fresh. Corruption or a backend error surfaces loudly instead of
+   * silently replacing a usable persisted session with an empty one.
+   */
+  private async createOrResumeSession(sessionId: string): Promise<AgentHandle> {
+    const session = brandString<SessionId>(sessionId)
+    const agentOptions = this.agentOptions()
+    if (this.ctx.get('sessionPersistence') !== undefined && typeof this.ctx.agents.resume === 'function') {
+      try {
+        return await this.ctx.agents.resume({ resumeSessionId: session, agentOptions })
+      } catch (error) {
+        // Only a genuinely absent durable log falls through to create. Every
+        // other failure (corruption, backend error) rethrows instead of
+        // silently replacing a usable persisted session with an empty one.
+        if (!(error instanceof Error && error.name === 'SessionPersistenceNotFoundError')) throw error
+      }
+    }
+    return this.ctx.agents.create({
+      sessionId: session,
       meta: { cwd: this.cwd },
       agentOptions,
-    }))
-    const rec: SessionRecord = { handle, failure: undefined }
-    this.sessions.set(sessionId, rec)
-    return rec
+    })
   }
 
   private hasAdapterFor(provider: string): boolean {
