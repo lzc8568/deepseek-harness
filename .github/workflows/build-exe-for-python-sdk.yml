@@ -36,10 +36,15 @@ on:
         description: >-
           Comma-separated pkg targets to build. Any subset of:
           node24-linux-x64, node24-linux-arm64, node24-macos-arm64,
-          node24-macos-x64, node24-win-x64. Empty builds all five.
+          node24-macos-x64, node24-win-x64. This fork defaults to the Linux
+          server target plus the local Apple Silicon runner; an empty value
+          falls back to all five.
         type: string
         required: false
-        default: ''
+        # fork: the deployment only ships the Linux runtime, and the local macOS
+        # venv needs the arm64 runtime wheel to smoke the exe. workflow_call
+        # callers (ci, ci-master, python-release) pass targets explicitly.
+        default: 'node24-linux-x64,node24-macos-arm64'
 
 concurrency:
   # Keep the called workflow distinct from its caller's concurrency group;
@@ -91,7 +96,8 @@ jobs:
       - name: Compute matrix from targets input
         id: plan
         env:
-          # Blank dispatch inputs build all targets.
+          # Blank inputs (a workflow_call without targets) build all targets;
+          # the fork's dispatch default narrows this to two.
           TARGETS: ${{ inputs.targets || 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64,node24-macos-x64,node24-win-x64' }}
         run: |
           set -euo pipefail
