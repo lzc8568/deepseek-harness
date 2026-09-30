@@ -88,6 +88,9 @@ class RuntimeBuildHook(BuildHookInterface):
             expected_files.append(f"{expected_executable}-spawn-helper")
         resources = runtime_dir / target
         expected_files.append(resources.name)
+        libvips = runtime_dir / f"{expected_executable.removesuffix('.exe')}-libvips"
+        if libvips.is_dir():
+            expected_files.append(libvips.name)
         expected_files.sort()
         found_files = [path.name for path in runtime_files]
         if found_files != expected_files:
@@ -98,6 +101,8 @@ class RuntimeBuildHook(BuildHookInterface):
             if executable == resources:
                 validate = runpy.run_path(str(runtime_dir.parent / "_resources.py"))["validate_downloads"]
                 validate(resources, target)
+                continue
+            if executable == libvips:
                 continue
             if not executable.is_file():
                 raise RuntimeError(f"runtime executable is not a file: {executable}")
