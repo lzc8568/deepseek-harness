@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -77,6 +78,7 @@ class HarnessClient:
         if self.config.env:
             env.update(self.config.env)
         args = list(self._launch_args or self._default_launch_args(env))
+        env = self._inject_shared_library_path(env, args)
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -90,6 +92,27 @@ class HarnessClient:
         )
         self._start_reader_thread()
         self._start_stderr_thread()
+
+    def _inject_shared_library_path(self, env: dict[str, str], args: list[str]) -> dict[str, str]:
+        """Expose a bundled sharp/libvips sidecar so the packaged runtime can dlopen it.
+
+        glibc snapshots ``LD_LIBRARY_PATH`` at process start, so the loader path
+        must be set here (the parent) before the subprocess execs. The build
+        places the ``@img/sharp-libvips-*`` bundle beside the executable as
+        ``<exe>-libvips`` and keeps its shared libraries under ``lib/``. When no
+        sidecar or no ``lib`` directory exists nothing is changed, so regular
+        Node launches and non-sharp closures keep working unchanged.
+        """
+        if not args:
+            return env
+        executable = Path(args[0]).resolve()
+        libvips_lib = executable.parent / f"{executable.name}-libvips" / "lib"
+        if not libvips_lib.is_dir():
+            return env
+        key = "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
+        existing = env.get(key, "")
+        env[key] = f"{libvips_lib}:{existing}" if existing else str(libvips_lib)
+        return env
 
     def close(self) -> None:
         """Close the runtime after a bounded opportunity to flush durable state."""

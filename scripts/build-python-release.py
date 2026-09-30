@@ -226,6 +226,9 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
         shutil.copy2(source_directory / filename, runtime_dir / filename)
     resources = executable_name.removeprefix("deepseek-harness-sdk-runtime-").removesuffix(".exe")
     shutil.copytree(source_directory / resources, runtime_dir / resources)
+    libvips = source_directory / f"{executable_name.removesuffix('.exe')}-libvips"
+    if libvips.is_dir():
+        shutil.copytree(libvips, runtime_dir / libvips.name)
 
 
 def verify_wheel(
@@ -268,8 +271,16 @@ def verify_wheel(
         if package == "runtime":
             assert platform is not None
             resources = platform[1].removeprefix("deepseek-harness-sdk-runtime-").removesuffix(".exe")
-            expected_files = sorted((*runtime_filenames(platform[1]), resources))
             found_files = sorted({name.split("/runtime/", 1)[1].split("/", 1)[0] for name in runtime_payload})
+            expected_files = [*runtime_filenames(platform[1]), resources]
+            # A sharp-backed closure ships its libvips shared libraries as a
+            # directory beside the executable, so the payload may carry one
+            # optional top-level `<exe>-libvips/` product in addition to the
+            # executable, sidecars, and resource directories.
+            libvips = f"{platform[1].removesuffix('.exe')}-libvips"
+            if libvips in found_files:
+                expected_files.append(libvips)
+            expected_files.sort()
             if found_files != expected_files:
                 raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
             validate = runpy.run_path(str(ROOT / "python/sdk-runtime/src/deepseek_harness_runtime/_resources.py"))["validate_downloads"]
