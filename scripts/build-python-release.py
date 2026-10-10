@@ -21,6 +21,31 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_DISTRIBUTION = "deepseek-harness-sdk"
 RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
 PLATFORM_MANIFEST = ROOT / "python" / "sdk-runtime" / "platforms.json"
+# PyPI caps one distribution file at 100 MB. This fork ships the runtime wheels
+# as GitHub Release assets instead, so a closure carrying the sharp/libvips
+# sidecar exceeds the PyPI ceiling without exceeding any limit of its channel.
+PYPI_FILE_LIMIT = 100_000_000
+GITHUB_RELEASE_FILE_LIMIT = 2_000_000_000
+
+
+def wheel_file_limit() -> int:
+    """Return the largest wheel this build channel accepts for one file.
+
+    The strict PyPI ceiling applies by default because the upstream release
+    workflow uploads there. Builds that deliver wheels through a GitHub Release
+    set ``DSH_WHEEL_FILE_LIMIT`` to that channel's ceiling instead, because the
+    sharp/libvips sidecar adds roughly 18 MB to the Linux runtime wheel.
+    """
+    override = os.environ.get("DSH_WHEEL_FILE_LIMIT")
+    if override is None:
+        return PYPI_FILE_LIMIT
+    try:
+        limit = int(override)
+    except ValueError as error:
+        raise ValueError(f"DSH_WHEEL_FILE_LIMIT must be an integer byte count, got {override!r}") from error
+    if limit <= 0:
+        raise ValueError(f"DSH_WHEEL_FILE_LIMIT must be positive, got {limit}")
+    return limit
 
 
 def load_platforms(path: Path = PLATFORM_MANIFEST) -> dict[str, tuple[str, str]]:
@@ -238,8 +263,13 @@ def verify_wheel(
     version: str,
     platform: tuple[str, str] | None,
 ) -> None:
-    if wheel.stat().st_size > 100_000_000:
-        raise RuntimeError(f"{wheel} is {wheel.stat().st_size} bytes and exceeds the PyPI single-file limit of 100000000 bytes")
+    limit = wheel_file_limit()
+    size = wheel.stat().st_size
+    if size > limit:
+        raise RuntimeError(
+            f"{wheel} is {size} bytes and exceeds this build channel's single-file limit of {limit} bytes; "
+            "set DSH_WHEEL_FILE_LIMIT only when the wheels ship somewhere other than PyPI"
+        )
     expected_tag = "py3-none-any" if platform is None else f"py3-none-{platform[0]}"
     expected_distribution = SDK_DISTRIBUTION if package == "sdk" else RUNTIME_DISTRIBUTION
     dist_info = f"{expected_distribution.replace('-', '_')}-{version}.dist-info"
