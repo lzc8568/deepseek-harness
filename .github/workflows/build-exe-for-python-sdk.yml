@@ -310,6 +310,12 @@ jobs:
           "wheel=$wheel" >> $env:GITHUB_OUTPUT
 
       - name: Build release-shaped runtime wheel
+        env:
+          # fork: the sharp/libvips sidecar pushes the Linux runtime wheel past
+          # the 100 MB PyPI ceiling. This workflow delivers wheels as GitHub
+          # Release assets, so the build checks that channel's 2 GB limit.
+          # python-release.yml uploads to PyPI and keeps the strict default.
+          DSH_WHEEL_FILE_LIMIT: '2000000000'
         run: >-
           python scripts/build-python-release.py
           --package runtime
